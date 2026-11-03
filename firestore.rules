@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function role() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    function allowed() {
+      return signedIn() && role() in ['owner', 'admin', 'warehouse', 'viewer'];
+    }
+    function editor() {
+      return signedIn() && role() in ['owner', 'admin', 'warehouse'];
+    }
+    function validInventory() {
+      return request.resource.data.keys().hasAll(['full','empty','damaged','updatedAt','updatedBy'])
+        && request.resource.data.keys().hasOnly(['full','empty','damaged','updatedAt','updatedBy'])
+        && request.resource.data.full is int && request.resource.data.full >= 0
+        && request.resource.data.empty is int && request.resource.data.empty >= 0
+        && request.resource.data.damaged is int && request.resource.data.damaged >= 0
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+    }
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || role() in ['owner','admin']);
+      // Alta de usuarios y asignación de roles: solo Firebase Console/Admin SDK.
+      allow write: if false;
+    }
+    match /inventory/{capacity} {
+      allow read: if allowed();
+      allow create, update: if editor() && capacity in ['10','45'] && validInventory();
+      allow delete: if false;
+    }
+    match /movements/{movementId} {
+      allow read: if allowed();
+      allow create: if editor()
+        && request.resource.data.keys().hasOnly(['capacity','type','quantity','note','before','after','createdBy','createdAt'])
+        && request.resource.data.keys().hasAll(['capacity','type','quantity','note','before','after','createdBy','createdAt'])
+        && request.resource.data.capacity in ['10','45']
+        && request.resource.data.type in ['receiveFull','receiveEmpty','dispatchFull','dispatchEmpty','exchangeSale','markDamaged']
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity > 0
+        && request.resource.data.quantity <= 1000000
+        && request.resource.data.note is string && request.resource.data.note.size() <= 300
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
