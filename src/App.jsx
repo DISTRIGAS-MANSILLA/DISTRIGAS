@@ -1,3 +1,6 @@
+import Ledger from './Ledger.jsx';
+import Routes from './Routes.jsx';
+import Users from './Users.jsx';
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import {
@@ -7,7 +10,7 @@ import {
 import {
   Boxes, ChartNoAxesCombined, ClipboardList, Fuel, LayoutDashboard,
   LogOut, Menu, PackageCheck, Plus, ShieldCheck, Truck, Wallet, Wrench, X,
-  AlertTriangle, RefreshCw, LockKeyhole,
+  AlertTriangle, RefreshCw, LockKeyhole, UsersRound,
 } from 'lucide-react';
 import { auth, configured, db } from './firebase';
 import './index.css';
@@ -29,6 +32,7 @@ const navigation = [
   { key: 'dashboard', title: 'Inicio', icon: LayoutDashboard },
   { key: 'inventory', title: 'Inventario y movimientos', icon: Boxes },
   { key: 'drivers', title: 'Choferes y rutas', icon: Truck },
+  { key: 'users', title: 'Usuarios y permisos', icon: UsersRound },
   { key: 'cash', title: 'Ventas y rendiciones', icon: Wallet },
   { key: 'replacement', title: 'Reposición YPFB', icon: RefreshCw },
   { key: 'reports', title: 'Reportes', icon: ChartNoAxesCombined },
@@ -77,7 +81,7 @@ function Inventory({ profile }) {
   const [quantity, setQuantity] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const canEdit = ['owner','admin','warehouse'].includes(profile.role);
+  const canEdit = ['admin','warehouse'].includes(profile.role);
   useEffect(() => {
     if (!db) return;
     let completed = 0;
@@ -143,14 +147,14 @@ function Inventory({ profile }) {
 function Dashboard({ onGo }) {
   const [stocks,setStocks]=useState({});
   useEffect(()=>{
-    const unsubscribe=types.map(t=>onSnapshot(doc(db,'inventory',t.id),s=>setStocks(x=>({...x,[t.id]:s.exists()?s.data():blank})),()=>{}));
+    const unsubscribe=types.map(t=>onSnapshot(doc(db,'glpLedgerState',t.id),s=>setStocks(x=>({...x,[t.id]:s.exists()?s.data():null})),()=>{}));
     return ()=>unsubscribe.forEach(x=>x());
   },[]);
   const total = field=>types.reduce((sum,t)=>sum+Number(stocks[t.id]?.[field]||0),0);
-  return <div className="content-stack"><div className="section-heading"><div><h1>Resumen general</h1><p>Inventario actual de la distribuidora. Datos sincronizados desde Firestore.</p></div><span className="live"><span/>En línea</span></div>
-    <div className="metrics"><div className="metric"><span className="circle blue"><PackageCheck size={20}/></span><small>Garrafas llenas</small><strong>{money(total('full'))}</strong></div><div className="metric"><span className="circle green"><Boxes size={20}/></span><small>Garrafas vacías</small><strong>{money(total('empty'))}</strong></div><div className="metric"><span className="circle amber"><Wrench size={20}/></span><small>Garrafas dañadas</small><strong>{money(total('damaged'))}</strong></div><div className="metric"><span className="circle"><ClipboardList size={20}/></span><small>Envases controlados</small><strong>{money(total('full')+total('empty')+total('damaged'))}</strong></div></div>
-    <div className="two-col"><section className="panel"><h2>Comenzar operaciones</h2><p className="hint">Registra las existencias iniciales mediante movimientos auditables; luego integraremos rutas, ventas y rendiciones.</p><button className="primary" onClick={()=>onGo('inventory')}>Abrir inventario</button></section><section className="panel"><h2>Próximos módulos</h2><div className="feature"><Truck size={18}/> Salidas, choferes, rutas y recolecciones</div><div className="feature"><Wallet size={18}/> Rendiciones, ventas y gastos</div><div className="feature"><RefreshCw size={18}/> Reposición mensual según YPFB</div></section></div>
-    <p className="small-note"><AlertTriangle size={15}/> El resumen muestra solo el inventario creado en este sistema. Antes de usarlo en producción, se debe registrar y verificar el conteo físico inicial.</p>
+  return <div className="content-stack"><div className="section-heading"><div><h1>Resumen general</h1><p>Existencias del registro lineal de GLP, con saldos del último día guardado en cada capacidad.</p></div><span className="live"><span/>En línea</span></div>
+    <div className="metrics"><div className="metric"><span className="circle blue"><PackageCheck size={20}/></span><small>Garrafas llenas</small><strong>{money(total('full'))}</strong></div><div className="metric"><span className="circle green"><Boxes size={20}/></span><small>Garrafas vacías</small><strong>{money(total('empty'))}</strong></div><div className="metric"><span className="circle"><ClipboardList size={20}/></span><small>Total en almacén</small><strong>{money(total('full')+total('empty'))}</strong></div></div>
+    <div className="two-col"><section className="panel"><h2>Inventario y movimientos</h2><p className="hint">Registro lineal en tres bloques: llenas, vacías y control de facturas. Solo el administrador ingresa el día consecutivo.</p><button className="primary" onClick={()=>onGo('inventory')}>Abrir inventario y movimientos</button></section><section className="panel"><h2>Operaciones GLP</h2><div className="feature"><Truck size={18}/> Reportes de Jaime, Willy y futuros choferes</div><div className="feature"><Wallet size={18}/> Rendiciones y gastos por ruta</div><div className="feature"><RefreshCw size={18}/> Reposición de envases según YPFB</div></section></div>
+    <p className="small-note"><AlertTriangle size={15}/> El inventario anterior quedó fuera del menú para evitar registros duplicados. No cargar información real hasta validar los saldos iniciales, las reglas y el procedimiento de corrección de cierres.</p>
   </div>;
 }
 
@@ -165,7 +169,8 @@ function Placeholder({ page }) {
 }
 
 function Workspace({ user, profile }) {
-  const [page,setPage]=useState('dashboard');
+  const visibleNavigation = profile.role==='driver' ? navigation.filter(x=>['drivers'].includes(x.key)) : profile.role==='warehouse' ? navigation.filter(x=>['dashboard','inventory'].includes(x.key)) : navigation.filter(x=>x.key!=='users'||['owner','admin'].includes(profile.role));
+  const [page,setPage]=useState(profile.role==='driver'?'drivers':'dashboard');
   const [menu,setMenu]=useState(false);
   const select = key => {setPage(key);setMenu(false)};
   return <div className="app-shell">
@@ -173,10 +178,10 @@ function Workspace({ user, profile }) {
     <aside className={'sidebar '+(menu?'expanded':'')}>
       <div className="brand"><div className="logo"><Fuel size={25}/></div><div><strong>DISTRIGAS</strong><small>Gestión de GLP</small></div><button className="mobile-close" onClick={()=>setMenu(false)}><X size={19}/></button></div>
       <div className="nav-group-title">OPERACIONES</div>
-      <nav>{navigation.map(item=>{const Icon=item.icon;return <button key={item.key} onClick={()=>select(item.key)} className={page===item.key?'nav-item selected':'nav-item'}><Icon size={19}/>{item.title}</button>})}</nav>
+      <nav>{visibleNavigation.map(item=>{const Icon=item.icon;return <button key={item.key} onClick={()=>select(item.key)} className={page===item.key?'nav-item selected':'nav-item'}><Icon size={19}/>{item.title}</button>})}</nav>
       <div className="sidebar-bottom"><div className="user-badge"><span className="avatar">{(profile.name||user.email||'U')[0].toUpperCase()}</span><div><strong>{profile.name||user.email}</strong><small>{profile.role}</small></div></div><button className="logout" onClick={()=>signOut(auth)}><LogOut size={17}/> Cerrar sesión</button></div>
     </aside>
-    <div className="main-area"><header className="topbar"><button className="menu-button" onClick={()=>setMenu(true)}><Menu size={23}/></button><div className="crumb">Sistema de Distribución <span>/</span> {navigation.find(x=>x.key===page)?.title}</div><div className="secure"><ShieldCheck size={16}/> Acceso protegido</div></header><main className="main-content">{page==='dashboard'?<Dashboard onGo={select}/>:page==='inventory'?<Inventory profile={profile}/>:<Placeholder page={page}/>}</main></div>
+    <div className="main-area"><header className="topbar"><button className="menu-button" onClick={()=>setMenu(true)}><Menu size={23}/></button><div className="crumb">Sistema de Distribución <span>/</span> {navigation.find(x=>x.key===page)?.title}</div><div className="secure"><ShieldCheck size={16}/> Acceso protegido</div></header><main className="main-content">{page==='users'&&['owner','admin'].includes(profile.role)?<Users profile={profile}/>:page==='drivers'?<Routes profile={profile}/>:page==='dashboard'?<Dashboard onGo={select}/>:page==='inventory'?<Ledger profile={profile}/>:<Placeholder page={page}/>}</main></div>
   </div>;
 }
 
@@ -191,12 +196,12 @@ export default function App() {
   useEffect(()=>{
     if(!user||!db)return;
     let alive=true;
-    getDoc(doc(db,'users',user.uid)).then(s=>{if(alive)setProfile(s.exists()?s.data():null)}).catch(err=>{if(alive){setError(messageFromError(err));setProfile(null)}});
+    getDoc(doc(db,'users',user.uid)).then(s=>{if(alive)setProfile(s.exists()&&s.data().active!==false?s.data():null)}).catch(err=>{if(alive){setError(messageFromError(err));setProfile(null)}});
     return ()=>{alive=false};
   },[user]);
   if(!configured)return <div className="config-screen"><AlertTriangle size={36}/><h1>Falta configurar Firebase</h1><p>Crea el archivo <code>.env.local</code> con las claves públicas de la aplicación web Firebase. Consulta <code>INSTRUCCIONES.md</code>.</p></div>;
   if(user===undefined|| (user&&profile===undefined))return <div className="config-screen"><RefreshCw size={32}/><p>Cargando DISTRIGAS...</p></div>;
   if(!user)return <Login/>;
-  if(!profile||!['owner','admin','warehouse','viewer'].includes(profile.role))return <div className="config-screen"><ShieldCheck size={36}/><h1>Cuenta sin perfil autorizado</h1><p>{error||'Tu usuario está autenticado, pero falta crear su documento de permisos en Firestore.'}</p><p>La administración debe crear <code>users/{user.uid}</code> con <code>role: "owner"</code> para el primer propietario.</p><button className="primary" onClick={()=>signOut(auth)}>Cerrar sesión</button></div>;
+  if(!profile||!['owner','admin','warehouse','viewer','driver'].includes(profile.role))return <div className="config-screen"><ShieldCheck size={36}/><h1>Cuenta sin perfil autorizado</h1><p>{error||'Tu cuenta no tiene un perfil autorizado o fue desactivada. Consulta al administrador.'}</p><p>La administración debe crear <code>users/{user.uid}</code> con <code>role: "owner"</code> para el primer propietario.</p><button className="primary" onClick={()=>signOut(auth)}>Cerrar sesión</button></div>;
   return <Workspace user={user} profile={profile}/>;
 }
